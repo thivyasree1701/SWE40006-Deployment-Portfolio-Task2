@@ -1,1638 +1,405 @@
-\# Task 2.2 – Application Load Balancer, RDS and S3 Backup/Restore
+# Task 2.2 – Load Balancer, RDS and S3 Backup/Restore
 
+## Objective
 
+The objective of Task 2.2 was to extend the original WordPress deployment by adding load balancing, moving the WordPress database to an external Amazon RDS database, backing up the deployment to Amazon S3, and restoring the application on another EC2 instance.
 
-\## Objective
+This task demonstrates a more reliable deployment architecture by separating the application, database and backup storage.
 
+---
 
+## AWS Resources Used
 
-Task 2.2 extended the Task 2.1 WordPress deployment by implementing:
+- Amazon EC2
+- Application Load Balancer (ALB)
+- Target Group
+- Amazon RDS for MariaDB
+- Amazon S3
+- IAM Role
+- Security Groups
+- WordPress
+- Apache HTTP Server
 
+---
 
+## 1. Application Load Balancer
 
-\- Application Load Balancer (ALB)
+I created an internet-facing Application Load Balancer named:
 
-\- Target Group
+`SWE40006-WordPress-ALB`
 
-\- External Amazon RDS MariaDB database
+The load balancer was configured in the same VPC as the WordPress EC2 deployment and used multiple Availability Zones.
 
-\- Migration of the existing WordPress database to RDS
+HTTP traffic on port `80` was configured for the WordPress application.
 
-\- Amazon S3 backup
+The Application Load Balancer provides a stable endpoint for users instead of requiring direct access to an individual EC2 instance.
 
-\- Restoration of WordPress to a new EC2 instance
+### Evidence
 
+![Application Load Balancer](../screenshots/Task-2.2/01-Application-Load-Balancer.png)
 
+**Figure 1:** Application Load Balancer created for the WordPress deployment.
 
-\---
+---
 
+## 2. Target Group Configuration
 
+I created a target group named:
 
-\# Part A – Application Load Balancer
+`SWE40006-WordPress-TG`
 
+The target group used:
 
+- Target type: Instance
+- Protocol: HTTP
+- Port: 80
 
-\## Step 1 – Create Target Group
+The WordPress EC2 instance was registered with the target group.
 
+The health check confirmed that the WordPress server was healthy and able to receive traffic from the load balancer.
 
+### Evidence
 
-I opened:
+![Healthy Target Group](../screenshots/Task-2.2/02-Target-Group-Healthy.png)
 
+**Figure 2:** WordPress target registered and reported as healthy.
 
+---
 
-```text
+## 3. WordPress Through the Load Balancer
 
-EC2
+After the target became healthy, I accessed WordPress using the Application Load Balancer DNS name.
 
-→ Load Balancing
+The website loaded successfully through the load balancer.
 
-→ Target Groups
+This confirmed that:
 
-→ Create target group
+- The ALB listener was working.
+- The target group was configured correctly.
+- The EC2 instance was healthy.
+- HTTP traffic could be forwarded from the ALB to WordPress.
 
-```
+### Evidence
 
+![WordPress via ALB](../screenshots/Task-2.2/03-WordPress-via-ALB.png)
 
+**Figure 3:** WordPress successfully accessed through the Application Load Balancer.
 
-The target group was configured as:
+---
 
+## 4. External Amazon RDS Database
 
+The next stage was to move the WordPress database away from the local EC2 MariaDB service.
 
-```text
+I created an Amazon RDS database using MariaDB.
 
-Name: SWE40006-WordPress-TG
+The database identifier was:
 
-Target type: Instances
+`swe40006-wordpress-rds`
 
-Protocol: HTTP
+The RDS instance was placed inside the same VPC as the WordPress application.
 
-Port: 80
+For security, the RDS database was configured as **not publicly accessible**.
 
-```
+Database traffic used MariaDB port:
 
+`3306`
 
+### Evidence
 
-The WordPress EC2 instance was registered as a target.
+![RDS Database](../screenshots/Task-2.2/04-RDS-Database.png)
 
+**Figure 4:** Amazon RDS MariaDB database created for WordPress.
 
+---
 
-\---
+## 5. RDS Connectivity
 
+The EC2 instance required network permission to communicate with the RDS database.
 
+Security groups were configured so that the WordPress EC2 instance could communicate with RDS on TCP port `3306`.
 
-\## Step 2 – Create ALB Security Group
+During command-line testing, RDS required secure transport. A normal MariaDB connection was therefore replaced with an SSL connection.
 
-
-
-A security group was created for the Application Load Balancer.
-
-
-
-```text
-
-Name: SWE40006-ALB-SG
-
-```
-
-
-
-HTTP traffic was allowed:
-
-
-
-```text
-
-Type: HTTP
-
-Protocol: TCP
-
-Port: 80
-
-Source: 0.0.0.0/0
-
-```
-
-
-
-This allows Internet users to access WordPress through the load balancer.
-
-
-
-\---
-
-
-
-\## Step 3 – Create Application Load Balancer
-
-
-
-I opened:
-
-
-
-```text
-
-EC2
-
-→ Load Balancing
-
-→ Load Balancers
-
-→ Create load balancer
-
-→ Application Load Balancer
-
-```
-
-
-
-The load balancer was configured as:
-
-
-
-```text
-
-Name: SWE40006-WordPress-ALB
-
-Scheme: Internet-facing
-
-IP address type: IPv4
-
-```
-
-
-
-The ALB was configured across multiple Availability Zones in the Singapore region.
-
-
-
-The listener was configured as:
-
-
-
-```text
-
-HTTP : 80
-
-→ SWE40006-WordPress-TG
-
-```
-
-
-
-\---
-
-
-
-\## Step 4 – Troubleshoot Target Group
-
-
-
-Initially, the WordPress EC2 target appeared as unused.
-
-
-
-\### Problem
-
-
-
-The EC2 instance was located in:
-
-
-
-```text
-
-ap-southeast-1c
-
-```
-
-
-
-but the ALB did not initially include the subnet for that Availability Zone.
-
-
-
-\### Solution
-
-
-
-I edited the ALB network mapping and added the subnet for:
-
-
-
-```text
-
-ap-southeast-1c
-
-```
-
-
-
-After adding the correct Availability Zone/subnet, the target became healthy.
-
-
-
-The target group later showed healthy targets.
-
-
-
-This demonstrated the importance of matching ALB Availability Zones with the Availability Zones containing target EC2 instances.
-
-
-
-\---
-
-
-
-\## Step 5 – Test WordPress Through ALB
-
-
-
-The ALB DNS name was opened in the browser.
-
-
-
-WordPress loaded successfully through the Application Load Balancer.
-
-
-
-The architecture at this stage was:
-
-
-
-```text
-
-Internet
-
-&#x20;  |
-
-&#x20;  v
-
-Application Load Balancer
-
-&#x20;  |
-
-&#x20;  v
-
-Target Group
-
-&#x20;  |
-
-&#x20;  v
-
-WordPress EC2
-
-```
-
-
-
-\---
-
-
-
-\# Part B – Amazon RDS External Database
-
-
-
-\## Step 6 – Create RDS MariaDB
-
-
-
-I opened:
-
-
-
-```text
-
-Amazon RDS
-
-→ Databases
-
-→ Create database
-
-```
-
-
-
-The database was created with:
-
-
-
-```text
-
-DB identifier: swe40006-wordpress-rds
-
-Engine: MariaDB
-
-Instance class: db.t4g.micro
-
-Region: ap-southeast-1
-
-Availability Zone: ap-southeast-1c
-
-Public access: No
-
-Port: 3306
-
-```
-
-
-
-The database was kept private rather than being directly exposed to the Internet.
-
-
-
-\---
-
-
-
-\## Step 7 – Configure RDS Security
-
-
-
-The RDS security group was configured to permit MySQL/MariaDB traffic from the EC2 application security group.
-
-
-
-```text
-
-Protocol: TCP
-
-Port: 3306
-
-Source: EC2 Security Group
-
-```
-
-
-
-This allows the WordPress EC2 instance to communicate with RDS without exposing the database publicly.
-
-
-
-\---
-
-
-
-\# Part C – Migrate Existing WordPress Database
-
-
-
-\## Step 8 – Create Local WordPress Database Backup
-
-
-
-Before migrating the database, I created a SQL backup of the existing WordPress database.
-
-
-
-The backup file was:
-
-
-
-```text
-
-/home/ec2-user/wordpress-backup.sql
-
-```
-
-
-
-The database dump was created from the existing `wordpress` database.
-
-
-
-The backup was checked to make sure the SQL file existed before migration.
-
-
-
-\---
-
-
-
-\## Step 9 – Connect to RDS
-
-
-
-I attempted to connect from the EC2 instance to the RDS MariaDB server.
-
-
-
-The RDS endpoint format was:
-
-
-
-```text
-
-swe40006-wordpress-rds.<RDS-ENDPOINT>.ap-southeast-1.rds.amazonaws.com
-
-```
-
-
-
-An initial connection attempt produced:
-
-
-
-```text
-
-ERROR 3159
-
-Connections using insecure transport are prohibited
-
-```
-
-
-
-\### Cause
-
-
-
-The RDS database had secure transport enabled.
-
-
-
-\### Solution
-
-
-
-I connected using SSL:
-
-
+Example:
 
 ```bash
-
 mariadb --ssl -h <RDS-ENDPOINT> -u admin -p
-
 ```
 
+After using SSL and configuring the security groups correctly, the connection to Amazon RDS succeeded.
 
+### Evidence
 
-The password was entered interactively and is not stored in this repository.
+![RDS Connectivity](../screenshots/Task-2.2/05-RDS-Connectivity.png)
 
+**Figure 5:** RDS configuration/connectivity used by the WordPress deployment.
 
+---
 
-The connection then succeeded.
+## 6. Migrating the WordPress Database to RDS
 
+The existing WordPress database was exported from the original EC2 instance.
 
-
-\---
-
-
-
-\## Step 10 – Create WordPress Database on RDS
-
-
-
-The WordPress database was prepared on RDS:
-
-
+The database backup file was:
 
 ```text
-
-wordpress
-
+wordpress-backup.sql
 ```
 
+The database was then imported into the RDS MariaDB instance.
 
-
-The existing WordPress SQL backup was then imported into the external database.
-
-
-
-Example command:
-
-
-
-```bash
-
-mariadb --ssl -h <RDS-ENDPOINT> -u admin -p wordpress < \~/wordpress-backup.sql
-
-```
-
-
-
-After importing, the WordPress tables were verified in RDS.
-
-
-
-\---
-
-
-
-\# Part D – Configure WordPress to Use RDS
-
-
-
-\## Step 11 – Backup wp-config.php
-
-
-
-Before modifying WordPress configuration, I kept a backup of the configuration file.
-
-
+The WordPress configuration file:
 
 ```text
-
-/var/www/html/wp-config.php.backup
-
-```
-
-
-
-This provided a recovery copy if the new database configuration failed.
-
-
-
-\---
-
-
-
-\## Step 12 – Change Database Configuration
-
-
-
-The WordPress configuration file was changed:
-
-
-
-```text
-
 /var/www/html/wp-config.php
-
 ```
 
+was updated so that WordPress used the external RDS endpoint instead of the local MariaDB database.
 
-
-The database settings were updated so WordPress used:
-
-
+The important configuration values included:
 
 ```text
-
-DB\_NAME = wordpress
-
-DB\_USER = admin
-
-DB\_HOST = RDS endpoint
-
+DB_NAME = wordpress
+DB_USER = admin
+DB_HOST = <RDS-ENDPOINT>
 ```
 
+Passwords are intentionally not included in this repository.
 
+Because RDS required SSL, WordPress was also configured to use SSL for the database connection.
 
-The database password is intentionally not shown.
+After migration, the local MariaDB service on the original EC2 instance was stopped during testing. WordPress continued to operate, confirming that the application was using the external RDS database.
 
+---
 
+## 7. S3 Backup
 
-\---
+After the RDS migration, I created a backup of the WordPress deployment and stored it in Amazon S3.
 
+The S3 bucket used for the backup was:
 
+`swe40006-thivyasree-ec2-backup`
 
-\## Step 13 – Configure SSL for WordPress Database Connection
-
-
-
-Because RDS required secure transport, SSL support was configured for the WordPress database connection.
-
-
-
-The required PHP/MySQL constant was:
-
-
-
-```php
-
-define( 'MYSQL\_CLIENT\_FLAGS', MYSQLI\_CLIENT\_SSL );
-
-```
-
-
-
-This allows the WordPress MySQL connection to use SSL.
-
-
-
-\---
-
-
-
-\# Part E – Troubleshooting WordPress/RDS
-
-
-
-\## Step 14 – HTTP 500 Error
-
-
-
-After changing WordPress to RDS, the website initially produced:
-
-
+The backup contained:
 
 ```text
-
-HTTP 500
-
-```
-
-
-
-I checked the WordPress PHP configuration.
-
-
-
-Syntax was tested using:
-
-
-
-```bash
-
-php -l /var/www/html/wp-config.php
-
-```
-
-
-
-\---
-
-
-
-\## Step 15 – Check PHP MySQL Extension
-
-
-
-I verified that PHP had MySQL support.
-
-
-
-```bash
-
-php -m | grep -i mysqli
-
-```
-
-
-
-The `mysqli` module was available.
-
-
-
-\---
-
-
-
-\## Step 16 – SELinux Database Connectivity
-
-
-
-I checked whether Apache was permitted to make network database connections.
-
-
-
-```bash
-
-getsebool httpd\_can\_network\_connect\_db
-
-```
-
-
-
-It was initially disabled.
-
-
-
-I enabled it permanently:
-
-
-
-```bash
-
-sudo setsebool -P httpd\_can\_network\_connect\_db 1
-
-```
-
-
-
-I verified the setting again:
-
-
-
-```bash
-
-getsebool httpd\_can\_network\_connect\_db
-
-```
-
-
-
-The result showed:
-
-
-
-```text
-
-httpd\_can\_network\_connect\_db --> on
-
-```
-
-
-
-\---
-
-
-
-\## Step 17 – Identify PHP Fatal Error
-
-
-
-Apache logs did not clearly identify the root cause of the HTTP 500 error.
-
-
-
-I therefore executed the WordPress PHP entry point directly from the command line.
-
-
-
-This exposed a PHP fatal error caused by the SSL constant.
-
-
-
-The incorrect constant was:
-
-
-
-```text
-
-MYSQL\_CLIENT\_SSL
-
-```
-
-
-
-The correct PHP mysqli constant was:
-
-
-
-```text
-
-MYSQLI\_CLIENT\_SSL
-
-```
-
-
-
-I corrected the configuration to:
-
-
-
-```php
-
-define( 'MYSQL\_CLIENT\_FLAGS', MYSQLI\_CLIENT\_SSL );
-
-```
-
-
-
-After correcting the configuration, WordPress executed successfully.
-
-
-
-\---
-
-
-
-\## Step 18 – Test WordPress
-
-
-
-I tested the web server again:
-
-
-
-```bash
-
-curl -I http://localhost
-
-```
-
-
-
-The result was:
-
-
-
-```text
-
-HTTP/1.1 200 OK
-
-```
-
-
-
-WordPress also loaded successfully in the browser.
-
-
-
-\---
-
-
-
-\## Step 19 – Verify WordPress Uses RDS
-
-
-
-To verify that WordPress was no longer dependent on the MariaDB database installed on the EC2 instance, I stopped the local MariaDB service.
-
-
-
-WordPress continued to work.
-
-
-
-This demonstrated that WordPress was using the external Amazon RDS database.
-
-
-
-Architecture:
-
-
-
-```text
-
-Internet
-
-&#x20;  |
-
-&#x20;  v
-
-Application Load Balancer
-
-&#x20;  |
-
-&#x20;  v
-
-Target Group
-
-&#x20;  |
-
-&#x20;  v
-
-WordPress EC2
-
-&#x20;  |
-
-&#x20;  | TCP 3306 / SSL
-
-&#x20;  v
-
-Amazon RDS MariaDB
-
-```
-
-
-
-\---
-
-
-
-\# Part F – Amazon S3 Backup
-
-
-
-\## Step 20 – Create S3 Bucket
-
-
-
-An Amazon S3 bucket was created for the WordPress backup:
-
-
-
-```text
-
-swe40006-thivyasree-ec2-backup
-
-```
-
-
-
-The bucket was created in the Singapore region.
-
-
-
-\---
-
-
-
-\## Step 21 – Configure EC2 Access to S3
-
-
-
-An IAM role was attached to the WordPress EC2 instance so the instance could access the S3 backup bucket.
-
-
-
-The role used was:
-
-
-
-```text
-
-SWE40006-EC2-S3-Backup-Role
-
-```
-
-
-
-This allowed the EC2 instance to use AWS CLI commands with S3 without storing AWS access keys directly on the server.
-
-
-
-\---
-
-
-
-\## Step 22 – Create WordPress Files Backup
-
-
-
-The WordPress application files were archived.
-
-
-
-The backup file was:
-
-
-
-```text
-
-wordpress-files-backup.tar.gz
-
-```
-
-
-
-The WordPress database backup was:
-
-
-
-```text
-
 wordpress-backup.sql
-
-```
-
-
-
-Therefore, the backup contained both:
-
-
-
-```text
-
-WordPress application files
-
-\+
-
-WordPress database
-
-```
-
-
-
-\---
-
-
-
-\## Step 23 – Upload Backups to S3
-
-
-
-AWS CLI was used to work with the S3 bucket.
-
-
-
-The bucket was checked using:
-
-
-
-```bash
-
-aws s3 ls s3://swe40006-thivyasree-ec2-backup/
-
-```
-
-
-
-The backup files stored in S3 were:
-
-
-
-```text
-
-wordpress-backup.sql
-
 wordpress-files-backup.tar.gz
-
 ```
 
+The SQL file contains the WordPress database backup, while the compressed archive contains the WordPress application files.
 
+An IAM role was attached to the EC2 instance so that AWS CLI commands could access the S3 bucket without storing AWS access keys directly on the server.
 
-This confirmed that the WordPress backup was stored outside the EC2 instance.
+### Example Commands
 
-
-
-\---
-
-
-
-\# Part G – Restore from S3 to a New EC2 Instance
-
-
-
-\## Step 24 – Create New Restore EC2 Instance
-
-
-
-A separate EC2 instance was created to demonstrate recovery from the S3 backup.
-
-
-
-The instance was named:
-
-
-
-```text
-
-SWE40006-WordPress-S3-Restore
-
-```
-
-
-
-This was a fresh EC2 instance used to prove that the WordPress deployment could be restored.
-
-
-
-\---
-
-
-
-\## Step 25 – SSH into Restore Instance
-
-
-
-I connected to the restore instance from Windows using SSH.
-
-
-
-Command format:
-
-
-
-```cmd
-
-ssh -i "SWE40006-WordPress-Key.pem" ec2-user@<RESTORE-EC2-PUBLIC-IP>
-
-```
-
-
-
-The SSH connection successfully opened the Amazon Linux terminal.
-
-
-
-\---
-
-
-
-\## Step 26 – Check S3 Backup
-
-
-
-From the restore EC2 instance, I checked the backup:
-
-
+Check the S3 bucket:
 
 ```bash
-
 aws s3 ls s3://swe40006-thivyasree-ec2-backup/
-
 ```
 
-
-
-The S3 bucket showed the WordPress backup files.
-
-
-
-\---
-
-
-
-\## Step 27 – Download WordPress Files Backup
-
-
-
-The WordPress archive was downloaded from S3:
-
-
+Upload a backup:
 
 ```bash
+aws s3 cp wordpress-backup.sql s3://swe40006-thivyasree-ec2-backup/
+```
 
+```bash
+aws s3 cp wordpress-files-backup.tar.gz s3://swe40006-thivyasree-ec2-backup/
+```
+
+### Evidence
+
+![S3 Backup](../screenshots/Task-2.2/06-S3-Backup.png)
+
+**Figure 6:** WordPress database and application backups stored in Amazon S3.
+
+---
+
+## 8. Creating a Restore EC2 Instance
+
+To demonstrate recovery from the S3 backup, I created another EC2 instance.
+
+The restored instance was named:
+
+`SWE40006-WordPress-S3-Restore`
+
+This provided a separate server on which the WordPress application could be recovered from the backup.
+
+### Evidence
+
+![Restored EC2](../screenshots/Task-2.2/09-Restored-EC2.png)
+
+**Figure 7:** Separate EC2 instance created for the S3 restoration test.
+
+---
+
+## 9. Restoring WordPress from S3
+
+I connected to the restore EC2 instance using SSH and accessed the S3 backup using AWS CLI.
+
+The available backup files were checked using:
+
+```bash
+aws s3 ls s3://swe40006-thivyasree-ec2-backup/
+```
+
+The WordPress archive was downloaded using:
+
+```bash
 aws s3 cp s3://swe40006-thivyasree-ec2-backup/wordpress-files-backup.tar.gz .
-
 ```
 
-
-
-This copied the archive from S3 to the new EC2 instance.
-
-
-
-\---
-
-
-
-\## Step 28 – Restore WordPress Files
-
-
-
-The WordPress files were extracted:
-
-
+The files were then extracted:
 
 ```bash
-
 sudo tar -xzf wordpress-files-backup.tar.gz -C /
-
 ```
 
-
-
-The restored files were checked:
-
-
+The restored WordPress files were checked using:
 
 ```bash
-
 ls -la /var/www/html
-
 ```
 
+### Evidence
 
+![S3 Restore Commands](../screenshots/Task-2.2/07-S3-Restore-Commands.png)
 
-The WordPress installation was present in:
+**Figure 8:** AWS CLI and Linux commands used to restore WordPress from the S3 backup.
 
+---
 
+## 10. Restore Troubleshooting
 
-```text
+The restored EC2 instance initially could not communicate successfully with the RDS database.
 
-/var/www/html
-
-```
-
-
-
-\---
-
-
-
-\# Part H – Restore Instance Troubleshooting
-
-
-
-\## Step 29 – Test Website
-
-
-
-The restored WordPress website was initially tested.
-
-
-
-The instance returned:
-
-
+Testing produced:
 
 ```text
-
 HTTP/1.1 504 Gateway Timeout
-
 ```
 
-
-
-This showed that the web server was reachable but WordPress could not successfully complete the backend database request.
-
-
-
-\---
-
-
-
-\## Step 30 – Test RDS Port
-
-
-
-RDS connectivity was investigated from the restore instance.
-
-
-
-The test showed:
-
-
+Further network testing showed:
 
 ```text
-
 RDS PORT BLOCKED
-
 ```
 
+The cause was the RDS security group. The restored EC2 instance used a different security group, and this security group had not yet been permitted to connect to RDS.
 
+I updated the RDS security group to allow TCP port `3306` from the security group used by the restored EC2 instance.
 
-\### Cause
-
-
-
-The RDS security group allowed the original EC2 instance/security group, but the newly created restore EC2 instance used a different security group.
-
-
-
-Therefore, the new EC2 instance was not permitted to access RDS on port 3306.
-
-
-
-\---
-
-
-
-\## Step 31 – Update RDS Security Group
-
-
-
-The RDS inbound security rules were updated.
-
-
-
-A rule was added allowing:
-
-
+After the rule was updated, testing showed:
 
 ```text
-
-Type: MySQL/Aurora
-
-Protocol: TCP
-
-Port: 3306
-
-Source: Restore EC2 Security Group
-
-```
-
-
-
-The database was still not made publicly accessible.
-
-
-
-\---
-
-
-
-\## Step 32 – Retest RDS Connectivity
-
-
-
-After updating the RDS security group, the connectivity test showed:
-
-
-
-```text
-
 RDS PORT OPEN
-
 ```
 
-
-
-This confirmed that the new restore EC2 instance could communicate with RDS.
-
-
-
-\---
-
-
-
-\## Step 33 – Verify Restored WordPress Configuration
-
-
-
-I verified the important WordPress database settings without displaying the database password.
-
-
-
-```bash
-
-grep -E "DB\_NAME|DB\_USER|DB\_HOST" /var/www/html/wp-config.php
-
-```
-
-
-
-The configuration confirmed:
-
-
+The website test then returned:
 
 ```text
-
-DB\_NAME = wordpress
-
-DB\_USER = admin
-
-DB\_HOST = Amazon RDS endpoint
-
-```
-
-
-
-\---
-
-
-
-\## Step 34 – Final Website Test
-
-
-
-The restored WordPress instance was tested again:
-
-
-
-```bash
-
-curl -I http://localhost
-
-```
-
-
-
-The final result was:
-
-
-
-```text
-
 HTTP/1.1 200 OK
-
 ```
 
+### Evidence
 
+![Restore RDS Troubleshooting](../screenshots/Task-2.2/08-Restore-RDS-Troubleshooting.png)
 
-The restored WordPress website also loaded successfully in a web browser.
+**Figure 9:** Troubleshooting the restored instance from blocked RDS connectivity to a successful HTTP 200 response.
 
+---
 
+## 11. Restored WordPress Verification
 
-\---
+After the files and database connectivity were restored, the new EC2 instance was tested through a web browser.
 
+The WordPress website loaded successfully.
 
+This demonstrated that the WordPress application could be recovered on another EC2 instance using the backup stored in Amazon S3 while continuing to use the external Amazon RDS database.
 
-\# Final Task 2.2 Architecture
+### Evidence
 
+![Restored WordPress](../screenshots/Task-2.2/10-Restored-WordPress.png)
 
+**Figure 10:** WordPress successfully running on the restored EC2 instance.
+
+---
+
+## Additional Troubleshooting
+
+### Load Balancer Target Initially Unused
+
+During the initial ALB configuration, the WordPress target appeared as unused.
+
+The EC2 instance was located in an Availability Zone that had not been enabled for the Application Load Balancer.
+
+I added the required subnet and Availability Zone to the ALB configuration. After this change, the target became healthy.
+
+### RDS Secure Transport Requirement
+
+A normal MariaDB connection to RDS initially failed because the RDS server required secure transport.
+
+The connection was changed to:
+
+```bash
+mariadb --ssl -h <RDS-ENDPOINT> -u admin -p
+```
+
+This allowed a secure connection to the database.
+
+### SELinux Database Connectivity
+
+Apache initially had difficulty communicating with the external RDS database.
+
+The SELinux setting for HTTP database network connections was checked and enabled using:
+
+```bash
+sudo setsebool -P httpd_can_network_connect_db 1
+```
+
+This allowed Apache/PHP to establish the required network database connection.
+
+### WordPress HTTP 500 Error
+
+After the RDS migration, WordPress returned an HTTP 500 error.
+
+Command-line PHP testing identified an incorrect constant in `wp-config.php`.
+
+Incorrect:
+
+```php
+MYSQL_CLIENT_SSL
+```
+
+Correct:
+
+```php
+MYSQLI_CLIENT_SSL
+```
+
+After correcting the constant, the WordPress application successfully returned:
 
 ```text
-
-&#x20;                        Internet
-
-&#x20;                           |
-
-&#x20;                           v
-
-&#x20;                 +---------------------+
-
-&#x20;                 | Application Load    |
-
-&#x20;                 | Balancer            |
-
-&#x20;                 +---------------------+
-
-&#x20;                           |
-
-&#x20;                           v
-
-&#x20;                 +---------------------+
-
-&#x20;                 | Target Group        |
-
-&#x20;                 +---------------------+
-
-&#x20;                           |
-
-&#x20;                           v
-
-&#x20;                 +---------------------+
-
-&#x20;                 | WordPress EC2       |
-
-&#x20;                 | Apache + PHP        |
-
-&#x20;                 +---------------------+
-
-&#x20;                           |
-
-&#x20;                           | SSL / TCP 3306
-
-&#x20;                           v
-
-&#x20;                 +---------------------+
-
-&#x20;                 | Amazon RDS MariaDB  |
-
-&#x20;                 +---------------------+
-
-
-
-Backup:
-
-WordPress EC2
-
-&#x20;     |
-
-&#x20;     | AWS CLI
-
-&#x20;     v
-
-+-------------------------+
-
-| Amazon S3               |
-
-| wordpress-backup.sql    |
-
-| wordpress-files-        |
-
-| backup.tar.gz           |
-
-+-------------------------+
-
-&#x20;     |
-
-&#x20;     | Restore
-
-&#x20;     v
-
-+-------------------------+
-
-| New Restore EC2         |
-
-| WordPress restored      |
-
-+-------------------------+
-
-&#x20;     |
-
-&#x20;     v
-
-Amazon RDS
-
+HTTP/1.1 200 OK
 ```
 
+---
 
+## Task 2.2 Result
 
-\---
+Task 2.2 was completed successfully.
 
+The WordPress deployment was extended with:
 
+- An Application Load Balancer
+- A healthy WordPress target group
+- An external Amazon RDS MariaDB database
+- Migration of the existing WordPress database to RDS
+- Amazon S3 backup storage
+- A separate EC2 restoration test
+- Successful WordPress recovery from the S3 backup
 
-\# Task 2.2 Result
-
-
-
-Task 2.2 was successfully completed.
-
-
-
-I demonstrated:
-
-
-
-\- Application Load Balancer creation
-
-\- Target Group creation
-
-\- ALB health checking
-
-\- ALB Availability Zone troubleshooting
-
-\- Amazon RDS MariaDB creation
-
-\- migration of the existing WordPress database to RDS
-
-\- SSL database connectivity
-
-\- WordPress external database configuration
-
-\- SELinux troubleshooting
-
-\- HTTP 500 troubleshooting
-
-\- Amazon S3 backup
-
-\- IAM role use for S3 access
-
-\- WordPress files and database backup
-
-\- creation of a new restore EC2 instance
-
-\- S3 backup download
-
-\- WordPress restoration
-
-\- RDS security group troubleshooting
-
-\- final HTTP 200 verification
-
-
-
-\---
-
-
-
-\# Evidence to Include
-
-
-
-Screenshots should be stored in:
-
-
-
-```text
-
-screenshots/Task-2.2/
-
-```
-
-
-
-Important evidence includes:
-
-
-
-1\. Application Load Balancer details
-
-2\. ALB network mappings
-
-3\. Target Group showing healthy targets
-
-4\. RDS database details
-
-5\. RDS endpoint and port
-
-6\. RDS security group
-
-7\. successful RDS command-line connection
-
-8\. WordPress tables on RDS
-
-9\. `httpd\_can\_network\_connect\_db --> on`
-
-10\. HTTP 500 troubleshooting
-
-11\. corrected `MYSQLI\_CLIENT\_SSL`
-
-12\. `curl` returning HTTP 200
-
-13\. S3 bucket showing both backup files
-
-14\. IAM role attached to EC2
-
-15\. restore EC2 instance
-
-16\. AWS CLI S3 listing
-
-17\. S3 backup download
-
-18\. restored `/var/www/html`
-
-19\. RDS port blocked troubleshooting
-
-20\. updated RDS security group
-
-21\. RDS port open
-
-22\. restored WordPress returning HTTP 200
-
-23\. restored WordPress working in browser
-
-
-
-\---
-
-
-
-\# Security
-
-
-
-No database password, WordPress administrator password, AWS secret key or SSH private key is included in this documentation.
-
-
-
-Screenshots containing passwords should be redacted or excluded before submission.
-
+The troubleshooting performed during this task also demonstrated investigation of load-balancer configuration, SSL database connections, SELinux, WordPress configuration and AWS security-group connectivity.
