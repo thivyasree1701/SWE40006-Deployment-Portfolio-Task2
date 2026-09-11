@@ -1,1332 +1,315 @@
-\# Task 2.4 – SSH Access and Command-Line Interaction
+# Task 2.4 – SSH and Command-Line Administration
 
+## Objective
 
+The objective of Task 2.4 was to demonstrate SSH access to the AWS EC2 deployment from a Windows computer and show command-line interactions used to manage, test and troubleshoot the WordPress environment.
 
-\## Objective
+SSH was used throughout the deployment to administer the EC2 instances, verify services, access Amazon S3 backups and test the restored WordPress application.
 
+---
 
+## Tools Used
 
-The objective of Task 2.4 was to demonstrate remote access to the deployed AWS EC2 instances from Windows using SSH and to perform command-line administration and testing.
+- Windows Command Prompt / PowerShell
+- OpenSSH
+- Amazon EC2
+- Amazon Linux 2023
+- EC2 SSH Key Pair
+- AWS CLI
+- Linux command-line tools
+- Apache HTTP Server
+- Amazon S3
+- Amazon RDS
 
+---
 
+## 1. SSH Access from Windows
 
-The demonstration included:
+The EC2 instances were accessed remotely from Windows using SSH.
 
+The SSH key pair used for the deployment was:
 
+`SWE40006-WordPress-Key`
 
-\- Windows Command Prompt
-
-\- SSH authentication using an EC2 key pair
-
-\- Amazon Linux command-line access
-
-\- Apache testing
-
-\- WordPress testing
-
-\- WordPress file inspection
-
-\- Amazon S3 commands
-
-\- backup restoration commands
-
-\- RDS connectivity testing
-
-\- troubleshooting using command-line tools
-
-
-
-\---
-
-
-
-\# Step 1 – Open Windows Command Prompt
-
-
-
-I opened Windows Command Prompt on my local computer.
-
-
-
-The SSH private key created for the deployment was stored securely on my local computer.
-
-
-
-The key pair used was:
-
-
-
-```text
-
-SWE40006-WordPress-Key
-
-```
-
-
-
-The private `.pem` file is not included in this GitHub repository.
-
-
-
-\---
-
-
-
-\# Step 2 – Connect to the Original WordPress EC2 Instance
-
-
-
-I connected from Windows to the original WordPress EC2 instance using SSH.
-
-
-
-The command format was:
-
-
-
-```cmd
-
-ssh -i "SWE40006-WordPress-Key.pem" ec2-user@<EC2-PUBLIC-DNS-OR-IP>
-
-```
-
-
-
-The SSH username for Amazon Linux was:
-
-
-
-```text
-
-ec2-user
-
-```
-
-
-
-When connecting to an instance for the first time, SSH asked whether I trusted the remote host.
-
-
-
-I entered:
-
-
-
-```text
-
-yes
-
-```
-
-
-
-The connection then opened an Amazon Linux terminal.
-
-
-
-\---
-
-
-
-\# Step 3 – Verify the Logged-In User
-
-
-
-After connecting, I used:
-
-
+A typical SSH command was:
 
 ```bash
-
-whoami
-
+ssh -i "SWE40006-WordPress-Key.pem" ec2-user@<EC2-PUBLIC-DNS>
 ```
 
+The private `.pem` file was stored locally on my Windows computer and was not uploaded to this GitHub repository.
 
+After successful authentication, the Amazon Linux command prompt was available and I could administer the EC2 instance remotely.
 
-The result was:
+### Evidence
 
+![Windows SSH Connection](../screenshots/Task-2.4/01-Windows-SSH-Connection.png)
 
+**Figure 1:** Successful SSH connection from Windows to an Amazon Linux EC2 instance.
 
-```text
+---
 
-ec2-user
+## 2. SSH Private Key Permission Problem
 
+During the SSH setup, Windows reported that the private key file permissions were too open.
+
+The SSH client rejected the key because other Windows users could potentially access the private key.
+
+The permissions were corrected using:
+
+```powershell
+icacls "SWE40006-WordPress-Key.pem" /inheritance:r
+icacls "SWE40006-WordPress-Key.pem" /grant:r "$($env:USERNAME):(R)"
 ```
 
+The first command removed inherited permissions.
 
+The second command granted read permission to my Windows user account.
 
-This confirmed that I had successfully connected to the EC2 instance using SSH.
+After correcting the file permissions, the SSH connection succeeded.
 
+### Evidence
 
+![SSH Key Permission Fix](../screenshots/Task-2.4/02-SSH-Key-Permission-Fix.png)
 
-\---
+**Figure 2:** SSH private-key permission problem and Windows permission correction.
 
+---
 
+## 3. WordPress Command-Line Verification
 
-\# Step 4 – Inspect WordPress Files
+After connecting through SSH, command-line tools were used to verify that the WordPress web server was responding correctly.
 
-
-
-I inspected the WordPress installation directory:
-
-
+For example:
 
 ```bash
-
-ls -la /var/www/html
-
-```
-
-
-
-The directory contained the WordPress application files.
-
-
-
-Examples included:
-
-
-
-```text
-
-index.php
-
-wp-admin
-
-wp-content
-
-wp-includes
-
-wp-config.php
-
-```
-
-
-
-This confirmed that WordPress was installed under the Apache document root.
-
-
-
-\---
-
-
-
-\# Step 5 – Check Apache
-
-
-
-I checked the Apache web server using:
-
-
-
-```bash
-
-sudo systemctl status httpd
-
-```
-
-
-
-The service showed that Apache was running.
-
-
-
-Apache could also be restarted when configuration changes were made:
-
-
-
-```bash
-
-sudo systemctl restart httpd
-
-```
-
-
-
-\---
-
-
-
-\# Step 6 – Test WordPress from the Command Line
-
-
-
-I tested the local web server using:
-
-
-
-```bash
-
 curl -I http://localhost
-
 ```
 
-
-
-A successful result returned:
-
-
+A successful response returned:
 
 ```text
-
 HTTP/1.1 200 OK
-
 ```
 
+This confirmed that the Apache web server was responding successfully from inside the EC2 instance.
 
-
-This allowed me to verify the web application directly from the EC2 terminal without relying only on the browser.
-
-
-
-\---
-
-
-
-\# Step 7 – Check WordPress PHP Configuration
-
-
-
-During troubleshooting, I checked the WordPress PHP configuration for syntax errors.
-
-
+Other useful commands included:
 
 ```bash
-
-php -l /var/www/html/wp-config.php
-
+sudo systemctl status httpd
 ```
 
-
-
-A valid configuration returned:
-
-
-
-```text
-
-No syntax errors detected
-
-```
-
-
-
-\---
-
-
-
-\# Step 8 – Check PHP MySQL Support
-
-
-
-I verified that PHP had the required MySQL/MariaDB extension.
-
-
+and:
 
 ```bash
-
-php -m | grep -i mysqli
-
+sudo systemctl is-active httpd
 ```
 
+These commands were used to check whether the Apache service was running.
 
+### Evidence
 
-The `mysqli` module was available.
+![WordPress CLI Test](../screenshots/Task-2.4/03-WordPress-CLI-Test.png)
 
+**Figure 3:** WordPress and Apache verified through SSH command-line testing.
 
+---
 
-This was necessary for WordPress to communicate with MariaDB/RDS.
+## 4. S3 Backup and Restore Using AWS CLI
 
+SSH was also used to perform backup and restoration operations.
 
-
-\---
-
-
-
-\# Step 9 – Check SELinux Database Permission
-
-
-
-During RDS troubleshooting, I checked the SELinux setting:
-
-
+The contents of the S3 backup bucket were checked using:
 
 ```bash
-
-getsebool httpd\_can\_network\_connect\_db
-
+aws s3 ls s3://swe40006-thivyasree-ec2-backup/
 ```
 
-
-
-The setting initially prevented the required database network connection.
-
-
-
-I enabled it permanently:
-
-
+The WordPress backup archive was downloaded from S3 using:
 
 ```bash
-
-sudo setsebool -P httpd\_can\_network\_connect\_db 1
-
+aws s3 cp s3://swe40006-thivyasree-ec2-backup/wordpress-files-backup.tar.gz .
 ```
 
-
-
-I checked it again:
-
-
+The downloaded WordPress files were restored using:
 
 ```bash
-
-getsebool httpd\_can\_network\_connect\_db
-
+sudo tar -xzf wordpress-files-backup.tar.gz -C /
 ```
 
+The restored files were then checked using:
 
+```bash
+ls -la /var/www/html
+```
+
+These commands demonstrate the use of both AWS CLI and Linux commands through an SSH session.
+
+### Evidence
+
+![S3 and Restore CLI Commands](../screenshots/Task-2.4/04-S3-CLI-Commands%20and%20Restore-CLI-Commands.png)
+
+**Figure 4:** AWS S3 and Linux restoration commands executed through SSH.
+
+---
+
+## 5. RDS Command-Line Testing
+
+Command-line testing was also used while configuring the external Amazon RDS database.
+
+The RDS MariaDB service required a secure connection.
+
+An example connection command was:
+
+```bash
+mariadb --ssl -h <RDS-ENDPOINT> -u admin -p
+```
+
+The `-p` option requests the password securely at the terminal rather than storing the password directly in the command.
+
+Database and network testing helped identify configuration problems during the WordPress RDS migration and restore process.
+
+### Evidence
+
+![RDS CLI Test](../screenshots/Task-2.4/05-RDS-CLI-Test.png)
+
+**Figure 5:** Command-line testing associated with the external RDS database.
+
+---
+
+## 6. Restored Instance Verification
+
+The restored WordPress EC2 instance was also verified through SSH.
+
+The hostname was checked to confirm that the commands were being executed on the restored instance.
+
+WordPress database configuration values were checked without displaying the database password.
+
+For example:
+
+```bash
+grep -E "DB_NAME|DB_USER|DB_HOST" /var/www/html/wp-config.php
+```
+
+This confirmed that WordPress was configured to use:
+
+- Database name: `wordpress`
+- Database user: `admin`
+- External Amazon RDS host
+
+The application was then tested using:
+
+```bash
+curl -I http://localhost
+```
 
 The final result was:
 
-
-
 ```text
-
-httpd\_can\_network\_connect\_db --> on
-
+HTTP/1.1 200 OK
 ```
 
+This demonstrated that the restored WordPress deployment was operational.
 
+### Evidence
 
-\---
+![Final Restore Verification](../screenshots/Task-2.4/06-Final-Restore-Verification.png)
 
+**Figure 6:** Final command-line verification of the restored WordPress instance and RDS configuration.
 
+---
 
-\# Step 10 – Connect to Amazon RDS from SSH
+## Command-Line Troubleshooting
 
+Command-line access was important for diagnosing several problems during the deployment.
 
+### SSH Connection Timeout
 
-I tested the external RDS MariaDB database directly from the EC2 command line.
+An SSH connection initially timed out because my public IP address had changed.
 
+The EC2 security group allowed SSH only from my previous IP address.
 
+I updated the SSH inbound rule on port `22` to my current public IP address.
 
-Because RDS required secure transport, I used SSL:
+After the rule was updated, SSH connectivity was restored.
 
+### Private Key Permission Error
 
+The Windows SSH client rejected the `.pem` key because its permissions were too open.
 
-```bash
+The issue was corrected with `icacls`, after which the same key successfully authenticated to EC2.
 
-mariadb --ssl -h <RDS-ENDPOINT> -u admin -p
+### RDS Connectivity
 
-```
+Command-line testing was used to determine whether EC2 could communicate with RDS.
 
+During the restored-instance test, database connectivity was initially blocked by the RDS security group.
 
+After allowing TCP port `3306` from the restored EC2 security group, connectivity succeeded.
 
-The database password was entered interactively.
+### WordPress HTTP Error
 
+Command-line PHP testing was also used to investigate an HTTP 500 error after the RDS migration.
 
-
-It is not included in this repository.
-
-
-
-The successful connection confirmed communication between:
-
-
-
-```text
-
-EC2
-
-&#x20;|
-
-&#x20;| SSL / TCP 3306
-
-&#x20;v
-
-Amazon RDS MariaDB
-
-```
-
-
-
-\---
-
-
-
-\# Step 11 – Import the WordPress Database
-
-
-
-The WordPress SQL backup was imported into the RDS database using a command in this format:
-
-
-
-```bash
-
-mariadb --ssl -h <RDS-ENDPOINT> -u admin -p wordpress < \~/wordpress-backup.sql
-
-```
-
-
-
-This migrated the existing WordPress database from the original EC2 deployment to Amazon RDS.
-
-
-
-\---
-
-
-
-\# Step 12 – Troubleshoot the HTTP 500 Error
-
-
-
-After migrating WordPress to RDS, WordPress returned an HTTP 500 error.
-
-
-
-Several command-line checks were performed.
-
-
-
-Configuration syntax:
-
-
-
-```bash
-
-php -l /var/www/html/wp-config.php
-
-```
-
-
-
-PHP MySQL extension:
-
-
-
-```bash
-
-php -m | grep -i mysqli
-
-```
-
-
-
-SELinux:
-
-
-
-```bash
-
-getsebool httpd\_can\_network\_connect\_db
-
-```
-
-
-
-Direct PHP execution was then used to expose the actual fatal error.
-
-
-
-The problem was an incorrect SSL constant.
-
-
+The problem was traced to an incorrect constant in `wp-config.php`.
 
 Incorrect:
 
-
-
-```text
-
-MYSQL\_CLIENT\_SSL
-
+```php
+MYSQL_CLIENT_SSL
 ```
-
-
 
 Correct:
 
-
-
-```text
-
-MYSQLI\_CLIENT\_SSL
-
-```
-
-
-
-The WordPress configuration was corrected to:
-
-
-
 ```php
-
-define( 'MYSQL\_CLIENT\_FLAGS', MYSQLI\_CLIENT\_SSL );
-
+MYSQLI_CLIENT_SSL
 ```
 
-
-
-After correcting the configuration:
-
-
-
-```bash
-
-curl -I http://localhost
-
-```
-
-
-
-returned:
-
-
+After correcting the configuration, WordPress returned:
 
 ```text
-
 HTTP/1.1 200 OK
-
 ```
 
+---
 
+## Security Considerations
 
-\---
+Several security practices were followed during SSH administration:
 
+- The private `.pem` key was not uploaded to GitHub.
+- SSH access was restricted to my public IP address.
+- Passwords were not stored in the documentation.
+- RDS was not made publicly accessible.
+- RDS access was controlled using security groups.
+- An IAM role was used for EC2 access to S3 rather than storing AWS access keys on the EC2 instance.
 
-
-\# Step 13 – SSH into the S3 Restore EC2 Instance
-
-
-
-Task 2.2 also required a new EC2 instance to demonstrate restoration from the S3 backup.
-
-
-
-The restore instance was:
-
-
+The repository `.gitignore` also excludes common sensitive files such as:
 
 ```text
-
-SWE40006-WordPress-S3-Restore
-
+*.pem
+*.key
+.env
+*credentials*
+*password*
 ```
 
+---
 
+## Task 2.4 Result
 
-From Windows Command Prompt, I connected using SSH:
+Task 2.4 was completed successfully.
 
+SSH access from Windows to the AWS EC2 instances was demonstrated, and command-line interactions were used throughout the deployment for:
 
+- EC2 administration
+- Apache verification
+- WordPress testing
+- S3 backup access
+- WordPress restoration
+- RDS connectivity testing
+- Troubleshooting
+- Final deployment verification
 
-```cmd
-
-ssh -i "SWE40006-WordPress-Key.pem" ec2-user@<RESTORE-EC2-PUBLIC-IP>
-
-```
-
-
-
-The SSH connection successfully opened the Amazon Linux command line.
-
-
-
-\---
-
-
-
-\# Step 14 – List the S3 Backup
-
-
-
-From the restore EC2 instance, I used AWS CLI to inspect the backup bucket:
-
-
-
-```bash
-
-aws s3 ls s3://swe40006-thivyasree-ec2-backup/
-
-```
-
-
-
-The output showed the WordPress backup files:
-
-
-
-```text
-
-wordpress-backup.sql
-
-wordpress-files-backup.tar.gz
-
-```
-
-
-
-This demonstrated command-line access from EC2 to Amazon S3.
-
-
-
-\---
-
-
-
-\# Step 15 – Download the Backup from S3
-
-
-
-I downloaded the WordPress application backup:
-
-
-
-```bash
-
-aws s3 cp s3://swe40006-thivyasree-ec2-backup/wordpress-files-backup.tar.gz .
-
-```
-
-
-
-AWS CLI copied the backup from S3 to the new EC2 instance.
-
-
-
-\---
-
-
-
-\# Step 16 – Restore the WordPress Files
-
-
-
-I extracted the downloaded archive:
-
-
-
-```bash
-
-sudo tar -xzf wordpress-files-backup.tar.gz -C /
-
-```
-
-
-
-I then checked the restored files:
-
-
-
-```bash
-
-ls -la /var/www/html
-
-```
-
-
-
-The WordPress files were successfully restored.
-
-
-
-\---
-
-
-
-\# Step 17 – Test the Restored Website
-
-
-
-I tested the restored web server:
-
-
-
-```bash
-
-curl -I http://localhost
-
-```
-
-
-
-During the first test, the website produced:
-
-
-
-```text
-
-HTTP/1.1 504 Gateway Timeout
-
-```
-
-
-
-This required further investigation.
-
-
-
-\---
-
-
-
-\# Step 18 – Test RDS Network Connectivity
-
-
-
-I tested whether the restored EC2 instance could reach RDS on TCP port 3306.
-
-
-
-The initial test indicated:
-
-
-
-```text
-
-RDS PORT BLOCKED
-
-```
-
-
-
-The problem was traced to the RDS security group.
-
-
-
-The new restore EC2 instance used a different security group from the original WordPress EC2 instance.
-
-
-
-\---
-
-
-
-\# Step 19 – Fix RDS Security Group
-
-
-
-I updated the RDS security group to permit the restore EC2 security group to connect on:
-
-
-
-```text
-
-TCP 3306
-
-```
-
-
-
-After changing the rule, the connectivity test returned:
-
-
-
-```text
-
-RDS PORT OPEN
-
-```
-
-
-
-This demonstrated command-line network troubleshooting.
-
-
-
-\---
-
-
-
-\# Step 20 – Verify Database Configuration Without Password
-
-
-
-I checked the important WordPress database configuration without displaying the database password:
-
-
-
-```bash
-
-grep -E "DB\_NAME|DB\_USER|DB\_HOST" /var/www/html/wp-config.php
-
-```
-
-
-
-The result confirmed that the restored WordPress instance used:
-
-
-
-```text
-
-DB\_NAME = wordpress
-
-DB\_USER = admin
-
-DB\_HOST = Amazon RDS endpoint
-
-```
-
-
-
-\---
-
-
-
-\# Step 21 – Combined Restore Verification
-
-
-
-I also used command-line verification to show the restored server configuration and website status.
-
-
-
-Commands included:
-
-
-
-```bash
-
-echo "=== RESTORED WORDPRESS INSTANCE ==="
-
-hostname
-
-grep -E "DB\_NAME|DB\_USER|DB\_HOST" /var/www/html/wp-config.php
-
-echo "=== WEBSITE TEST ==="
-
-curl -I http://localhost | head -n 1
-
-```
-
-
-
-The final website test returned:
-
-
-
-```text
-
-HTTP/1.1 200 OK
-
-```
-
-
-
-This demonstrated that the restored EC2 instance could:
-
-
-
-```text
-
-Load restored WordPress files
-
-&#x20;       |
-
-&#x20;       v
-
-Connect to Amazon RDS
-
-&#x20;       |
-
-&#x20;       v
-
-Run WordPress through Apache/PHP
-
-&#x20;       |
-
-&#x20;       v
-
-Return HTTP 200
-
-```
-
-
-
-\---
-
-
-
-\# Step 22 – Browser Verification
-
-
-
-After the command-line test returned HTTP 200, I opened the public address of the restored EC2 instance in a browser.
-
-
-
-The WordPress website loaded successfully.
-
-
-
-This provided both:
-
-
-
-```text
-
-Command-line evidence
-
-\+
-
-Browser evidence
-
-```
-
-
-
-of the successful restoration.
-
-
-
-\---
-
-
-
-\# SSH Troubleshooting – Connection Timeout
-
-
-
-During the deployment, an SSH connection attempt timed out.
-
-
-
-\## Problem
-
-
-
-The EC2 security group allowed SSH only from my previous public IP address.
-
-
-
-My Internet connection later received a different public IP.
-
-
-
-Therefore, the existing `/32` security group rule no longer matched my computer.
-
-
-
-\## Solution
-
-
-
-I opened:
-
-
-
-```text
-
-EC2
-
-→ Security Groups
-
-→ Inbound rules
-
-→ Edit inbound rules
-
-```
-
-
-
-For SSH port 22, I changed the source to my current:
-
-
-
-```text
-
-My IP
-
-```
-
-
-
-I saved the security group rule and retried SSH.
-
-
-
-The connection then succeeded.
-
-
-
-This showed that SSH access depended on both:
-
-
-
-```text
-
-Correct SSH private key
-
-\+
-
-Correct Security Group source IP
-
-```
-
-
-
-\---
-
-
-
-\# Command-Line Summary
-
-
-
-Important commands demonstrated during the deployment included:
-
-
-
-```bash
-
-whoami
-
-```
-
-
-
-```bash
-
-ls -la /var/www/html
-
-```
-
-
-
-```bash
-
-sudo systemctl status httpd
-
-```
-
-
-
-```bash
-
-sudo systemctl restart httpd
-
-```
-
-
-
-```bash
-
-curl -I http://localhost
-
-```
-
-
-
-```bash
-
-php -l /var/www/html/wp-config.php
-
-```
-
-
-
-```bash
-
-php -m | grep -i mysqli
-
-```
-
-
-
-```bash
-
-getsebool httpd\_can\_network\_connect\_db
-
-```
-
-
-
-```bash
-
-sudo setsebool -P httpd\_can\_network\_connect\_db 1
-
-```
-
-
-
-```bash
-
-mariadb --ssl -h <RDS-ENDPOINT> -u admin -p
-
-```
-
-
-
-```bash
-
-aws s3 ls s3://swe40006-thivyasree-ec2-backup/
-
-```
-
-
-
-```bash
-
-aws s3 cp s3://swe40006-thivyasree-ec2-backup/wordpress-files-backup.tar.gz .
-
-```
-
-
-
-```bash
-
-sudo tar -xzf wordpress-files-backup.tar.gz -C /
-
-```
-
-
-
-```bash
-
-grep -E "DB\_NAME|DB\_USER|DB\_HOST" /var/www/html/wp-config.php
-
-```
-
-
-
-\---
-
-
-
-\# Task 2.4 Result
-
-
-
-Task 2.4 was successfully completed.
-
-
-
-I demonstrated:
-
-
-
-\- SSH access from Windows
-
-\- authentication using an EC2 `.pem` key
-
-\- Amazon Linux command-line access
-
-\- Linux user verification
-
-\- Apache administration
-
-\- WordPress file inspection
-
-\- HTTP testing using `curl`
-
-\- PHP configuration testing
-
-\- SELinux configuration
-
-\- RDS command-line access
-
-\- SSL database connectivity
-
-\- AWS CLI interaction with S3
-
-\- S3 backup download
-
-\- command-line restoration
-
-\- network/database troubleshooting
-
-\- SSH security group troubleshooting
-
-\- successful restored WordPress verification
-
-
-
-\---
-
-
-
-\# Evidence to Include
-
-
-
-Screenshots for this task should be stored in:
-
-
-
-```text
-
-screenshots/Task-2.4/
-
-```
-
-
-
-Important evidence includes:
-
-
-
-1\. Windows Command Prompt showing the SSH command
-
-2\. successful Amazon Linux SSH login
-
-3\. `whoami` result
-
-4\. Apache/WordPress command-line testing
-
-5\. `curl -I http://localhost`
-
-6\. AWS CLI `aws s3 ls`
-
-7\. AWS CLI S3 download
-
-8\. `tar` extraction
-
-9\. `/var/www/html` listing
-
-10\. RDS connectivity testing
-
-11\. final HTTP 200 response
-
-12\. restored WordPress browser result
-
-
-
-\---
-
-
-
-\# Security Note
-
-
-
-The SSH private key is not included in this repository.
-
-
-
-The following must never be committed:
-
-
-
-```text
-
-\*.pem
-
-Database passwords
-
-AWS access keys
-
-AWS secret keys
-
-WordPress administrator passwords
-
-```
-
-
-
-Screenshots containing passwords should be redacted or excluded.
-
+The command-line evidence demonstrates successful remote administration of the AWS WordPress environment from Windows.
