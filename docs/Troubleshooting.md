@@ -1,1042 +1,495 @@
-\# Troubleshooting and Problem Investigation
+# Troubleshooting and Problem Resolution
 
+## Overview
 
+During the AWS WordPress deployment, several technical problems occurred involving SSH, networking, the Application Load Balancer, Amazon RDS, WordPress configuration and restoration from Amazon S3.
 
-\## Overview
+This document records the main problems, how they were investigated, their causes, and the solutions applied.
 
+---
 
+## 1. SSH Connection Timeout
 
-During Deployment Portfolio Task 2, several technical problems occurred while configuring EC2, SSH, the Application Load Balancer, Amazon RDS, WordPress, Amazon S3 and the restored EC2 instance.
+### Problem
 
+When attempting to connect to the EC2 instance from Windows using SSH, the connection timed out.
 
+Example:
 
-Instead of only rebuilding the environment, I investigated each problem using AWS configuration checks and Linux command-line tools.
-
-
-
-This document records the main problems, causes, investigations and solutions.
-
-
-
-\---
-
-
-
-\# 1. SSH Connection Timed Out
-
-
-
-\## Problem
-
-
-
-I attempted to connect to the WordPress EC2 instance from Windows using SSH:
-
-
-
-```cmd
-
-ssh -i "SWE40006-WordPress-Key.pem" ec2-user@<EC2-PUBLIC-DNS-OR-IP>
-
+```bash
+ssh -i "SWE40006-WordPress-Key.pem" ec2-user@<EC2-PUBLIC-DNS>
 ```
 
+The connection could not reach the EC2 instance.
 
-
-The SSH connection timed out.
-
-
-
-\## Investigation
-
-
+### Investigation
 
 I checked:
 
+- EC2 instance state
+- Public IP/DNS
+- Security group inbound rules
+- SSH port `22`
+- My current public IP address
 
+The EC2 security group allowed SSH only from a specific `/32` public IP address.
 
-\- EC2 instance state
+My public IP address had changed, so the existing security group rule no longer matched my computer.
 
-\- public IPv4 address
+### Cause
 
-\- SSH key pair
+The SSH security group rule contained my previous public IP address.
 
-\- Security Group inbound rules
+### Solution
 
-\- source IP configured for TCP port 22
+I edited the EC2 security group and changed the SSH source to my current public IP address.
 
-
-
-The SSH Security Group rule was restricted to a `/32` public IP address.
-
-
-
-My Internet connection had received a different public IP address.
-
-
-
-Therefore, the IP permitted by the Security Group was no longer my current IP.
-
-
-
-\## Solution
-
-
-
-I opened:
-
-
+The rule remained restricted to:
 
 ```text
-
-EC2
-
-→ Security Groups
-
-→ Inbound rules
-
-→ Edit inbound rules
-
-```
-
-
-
-For:
-
-
-
-```text
-
 SSH
-
 TCP
-
 Port 22
-
+My IP /32
 ```
 
+After updating the rule, SSH could reach the EC2 instance again.
 
+### Lesson Learned
 
-I changed the source to:
+Restricting SSH to a specific IP address improves security, but the rule must be updated when the client public IP changes.
 
+---
 
+## 2. Windows SSH Private Key Permission Error
 
-```text
+### Problem
 
-My IP
+After resolving the network timeout, Windows SSH rejected the `.pem` private key because its permissions were too open.
 
+The SSH client displayed a warning indicating that the private key file was accessible by other users.
+
+### Investigation
+
+The EC2 instance and network configuration were working, so the problem was related to the local Windows key file rather than AWS.
+
+### Cause
+
+The `.pem` file inherited Windows permissions that allowed more access than OpenSSH accepts for a private key.
+
+### Solution
+
+I removed inherited permissions:
+
+```powershell
+icacls "SWE40006-WordPress-Key.pem" /inheritance:r
 ```
 
+I then granted read access to my Windows user:
 
+```powershell
+icacls "SWE40006-WordPress-Key.pem" /grant:r "$($env:USERNAME):(R)"
+```
 
-and saved the rule.
+After changing the permissions, SSH authentication succeeded.
 
+### Lesson Learned
 
+SSH private keys must be protected both in AWS and on the local computer.
 
-\## Result
+The private `.pem` file is not included in this GitHub repository.
 
+---
 
+## 3. Application Load Balancer Target Was Unused
 
-I retried SSH and successfully connected to Amazon Linux.
+### Problem
 
+After creating the Application Load Balancer and target group, the WordPress EC2 target initially appeared as unused instead of healthy.
 
-
-\## Lesson Learned
-
-
-
-Restricting SSH to a specific IP is more secure than allowing `0.0.0.0/0`, but the rule must be updated when the client's public IP changes.
-
-
-
-\---
-
-
-
-\# 2. Application Load Balancer Target Appeared Unused
-
-
-
-\## Problem
-
-
-
-After creating the Application Load Balancer and registering the WordPress EC2 instance, the target did not initially operate as expected and appeared as unused.
-
-
-
-\## Investigation
-
-
+### Investigation
 
 I checked:
 
+- Target group registration
+- HTTP port `80`
+- EC2 instance state
+- Security groups
+- Load Balancer Availability Zones and subnets
 
+The WordPress EC2 instance was located in an Availability Zone that was not initially enabled on the Application Load Balancer.
 
-```text
+### Cause
 
-EC2 instance Availability Zone
+The ALB did not include the subnet for the Availability Zone containing the WordPress EC2 instance.
 
-ALB network mappings
+Therefore, the load balancer could not correctly use that target.
 
-Target Group
+### Solution
 
-Health check
+I edited the Application Load Balancer network configuration and added the required subnet/Availability Zone.
 
-Security Groups
+After the change, the target became healthy.
 
-```
+### Verification
 
+The WordPress website successfully loaded using the Application Load Balancer DNS name.
 
+### Lesson Learned
 
-The original WordPress EC2 instance was in:
+The load balancer must be configured for the Availability Zones containing the EC2 targets that it needs to serve.
 
+---
 
+## 4. Amazon RDS Secure Transport Error
 
-```text
+### Problem
 
-ap-southeast-1c
+When connecting from EC2 to the Amazon RDS MariaDB database, the initial MariaDB connection failed.
 
-```
+RDS required secure transport.
 
+### Investigation
 
+A standard connection was attempted first.
 
-The ALB initially did not have the required subnet enabled for that Availability Zone.
+The database server rejected the connection because secure transport was required.
 
+### Cause
 
+The RDS MariaDB configuration required SSL for database connections.
 
-\## Cause
+### Solution
 
-
-
-The load balancer was not enabled in the Availability Zone containing the WordPress target instance.
-
-
-
-\## Solution
-
-
-
-I edited the Application Load Balancer network mappings and added the subnet for:
-
-
-
-```text
-
-ap-southeast-1c
-
-```
-
-
-
-\## Result
-
-
-
-The target became usable/healthy and WordPress successfully loaded through the ALB DNS address.
-
-
-
-\## Lesson Learned
-
-
-
-The ALB network mapping must include the Availability Zones containing the EC2 targets.
-
-
-
-\---
-
-
-
-\# 3. RDS Secure Transport Error 3159
-
-
-
-\## Problem
-
-
-
-After creating the Amazon RDS MariaDB instance, I attempted to connect from EC2.
-
-
-
-The database returned an error similar to:
-
-
-
-```text
-
-ERROR 3159
-
-Connections using insecure transport are prohibited
-
-```
-
-
-
-\## Investigation
-
-
-
-This indicated that the RDS MariaDB configuration required secure transport.
-
-
-
-\## Solution
-
-
-
-I changed the MariaDB command to use SSL:
-
-
+I connected using the MariaDB client's SSL option:
 
 ```bash
-
 mariadb --ssl -h <RDS-ENDPOINT> -u admin -p
-
 ```
 
+The password was entered interactively and is not stored in this repository.
 
+### Verification
 
-The password was entered interactively and is not recorded in this repository.
+The secure connection successfully opened the MariaDB client connected to Amazon RDS.
 
+### Lesson Learned
 
+Managed database services can enforce additional security requirements such as encrypted database connections.
 
-\## Result
+---
 
+## 5. RDS Authentication Error
 
+### Problem
 
-The RDS connection succeeded.
+During the RDS migration process, a database connection produced an authentication error.
 
-
-
-I could then import the WordPress database using:
-
-
-
-```bash
-
-mariadb --ssl -h <RDS-ENDPOINT> -u admin -p wordpress < \~/wordpress-backup.sql
-
-```
-
-
-
-\## Lesson Learned
-
-
-
-A network connection being permitted by the Security Group does not guarantee database login will succeed. Database-level security such as mandatory TLS/SSL must also be satisfied.
-
-
-
-\---
-
-
-
-\# 4. RDS Authentication Error
-
-
-
-\## Problem
-
-
-
-During later RDS testing, MariaDB returned an authentication error:
-
-
+Example:
 
 ```text
-
 ERROR 1045
-
 Access denied
-
 ```
 
+### Investigation
 
+I checked:
 
-\## Investigation
+- RDS endpoint
+- Database username
+- Password
+- Port `3306`
+- Security group configuration
 
+Network access was available, which indicated that the problem was authentication rather than connectivity.
 
+### Cause
 
-I verified:
+The password being used did not match the current RDS master-user password.
 
+### Solution
 
+The RDS master password was reset.
 
-\- RDS endpoint
+The new credentials were tested directly using the MariaDB client before updating WordPress.
 
-\- database username
+The corresponding WordPress database configuration was then updated.
 
-\- port 3306
+### Security Note
 
-\- Security Group connectivity
+The database password is intentionally excluded from the GitHub repository and documentation.
 
-\- password being used by the application
+### Lesson Learned
 
+Testing database credentials directly from the command line helps separate authentication problems from network problems.
 
+---
 
-The problem was related to the RDS master password.
+## 6. Apache/PHP Could Not Communicate with RDS
 
+### Problem
 
+Even after command-line RDS connectivity was available, the WordPress application still experienced database connectivity problems.
 
-\## Solution
+### Investigation
 
+I checked the SELinux configuration using the HTTP database networking setting.
 
+The relevant setting was initially disabled.
 
-I reset the RDS master password through the AWS RDS console.
+### Cause
 
+SELinux prevented the Apache/PHP process from making the required external database network connection.
 
+### Solution
 
-I then tested the new credentials directly from EC2 using the MariaDB client before updating WordPress.
-
-
-
-After successful testing, the WordPress configuration was updated.
-
-
-
-\## Result
-
-
-
-RDS authentication succeeded.
-
-
-
-\## Security Note
-
-
-
-The actual database password is intentionally excluded from this repository.
-
-
-
-\---
-
-
-
-\# 5. WordPress Could Not Properly Access RDS Because of SELinux
-
-
-
-\## Problem
-
-
-
-WordPress still had problems communicating with the external database even though direct database connectivity was being tested.
-
-
-
-\## Investigation
-
-
-
-I checked the SELinux Boolean:
-
-
+I enabled the setting persistently:
 
 ```bash
-
-getsebool httpd\_can\_network\_connect\_db
-
+sudo setsebool -P httpd_can_network_connect_db 1
 ```
 
+The setting was then checked to confirm that it was enabled.
 
+### Verification
 
-The setting was disabled.
+The configuration showed that HTTP database network connectivity was enabled.
 
+### Lesson Learned
 
+Successful command-line connectivity does not always mean that the web-server process has permission to make the same network connection.
 
-\## Cause
+Operating-system security controls such as SELinux must also be considered.
 
+---
 
+## 7. WordPress HTTP 500 Error After RDS Migration
 
-Apache/PHP needed permission under SELinux to establish a network connection to the external RDS database.
+### Problem
 
+After configuring WordPress to use Amazon RDS, the website returned an HTTP 500 error.
 
+### Investigation
 
-\## Solution
+Several areas were checked:
 
+- Apache service
+- PHP
+- `wp-config.php`
+- RDS connectivity
+- WordPress logging
 
+The normal WordPress debug log did not immediately identify the problem.
 
-I enabled the required SELinux setting permanently:
+I then executed PHP directly from the command line to isolate the configuration error.
 
-
-
-```bash
-
-sudo setsebool -P httpd\_can\_network\_connect\_db 1
-
-```
-
-
-
-I verified it:
-
-
-
-```bash
-
-getsebool httpd\_can\_network\_connect\_db
-
-```
-
-
-
-\## Result
-
-
-
-The output showed:
-
-
+The command-line output reported an undefined constant in:
 
 ```text
-
-httpd\_can\_network\_connect\_db --> on
-
+/var/www/html/wp-config.php
 ```
 
+### Cause
 
+The SSL client constant in `wp-config.php` was written incorrectly.
 
-\## Lesson Learned
-
-
-
-Linux security controls can block an application even when AWS Security Groups and database credentials are configured correctly.
-
-
-
-\---
-
-
-
-\# 6. WordPress Returned HTTP 500
-
-
-
-\## Problem
-
-
-
-After migrating WordPress from the local MariaDB database to Amazon RDS, the website returned:
-
-
-
-```text
-
-HTTP 500
-
-```
-
-
-
-\## Investigation
-
-
-
-I first checked the WordPress PHP configuration:
-
-
-
-```bash
-
-php -l /var/www/html/wp-config.php
-
-```
-
-
-
-I also verified the MySQL PHP extension:
-
-
-
-```bash
-
-php -m | grep -i mysqli
-
-```
-
-
-
-The configuration did not show a normal PHP syntax error and `mysqli` was installed.
-
-
-
-Apache logs and the expected WordPress debug output did not immediately reveal the actual problem.
-
-
-
-I therefore tested the WordPress PHP execution directly from the command line.
-
-
-
-This exposed a fatal PHP error involving an undefined SSL constant.
-
-
-
-\## Root Cause
-
-
-
-The WordPress configuration contained:
-
-
-
-```text
-
-MYSQL\_CLIENT\_SSL
-
-```
-
-
-
-The correct PHP `mysqli` constant was:
-
-
-
-```text
-
-MYSQLI\_CLIENT\_SSL
-
-```
-
-
-
-The missing letter `I` caused the fatal PHP error.
-
-
-
-\## Solution
-
-
-
-I corrected the configuration to:
-
-
+Incorrect:
 
 ```php
-
-define( 'MYSQL\_CLIENT\_FLAGS', MYSQLI\_CLIENT\_SSL );
-
+MYSQL_CLIENT_SSL
 ```
 
+Correct:
 
-
-\## Verification
-
-
-
-I tested WordPress again:
-
-
-
-```bash
-
-curl -I http://localhost
-
+```php
+MYSQLI_CLIENT_SSL
 ```
 
+### Solution
 
+I corrected the constant in `wp-config.php`.
 
-\## Result
+I then checked the PHP configuration and tested WordPress again.
 
+### Verification
 
-
-The server returned:
-
-
+The final HTTP test returned:
 
 ```text
-
 HTTP/1.1 200 OK
-
 ```
-
-
 
 WordPress also loaded successfully in the browser.
 
+### Lesson Learned
 
+Running PHP directly from the command line can reveal configuration errors that may not be obvious from the browser or application logs.
 
-\## Lesson Learned
+---
 
+## 8. Restored EC2 Instance Returned 504 Gateway Timeout
 
+### Problem
 
-When normal web-server logs do not clearly reveal a PHP application failure, direct command-line execution can help expose the actual fatal error.
-
-
-
-\---
-
-
-
-\# 7. Verifying WordPress Was Really Using RDS
-
-
-
-\## Objective
-
-
-
-After fixing WordPress, I wanted to confirm that the application was actually using Amazon RDS instead of silently continuing to use the local MariaDB database.
-
-
-
-\## Test
-
-
-
-The local MariaDB service on the original EC2 instance was stopped.
-
-
-
-I then tested WordPress again.
-
-
-
-\## Result
-
-
-
-WordPress continued to return a successful response and remained accessible.
-
-
-
-This provided evidence that WordPress was using:
-
-
+After restoring the WordPress files from Amazon S3 onto the new EC2 instance, the application initially returned:
 
 ```text
-
-EC2 WordPress
-
-&#x20;    |
-
-&#x20;    v
-
-Amazon RDS MariaDB
-
-```
-
-
-
-rather than the original local database.
-
-
-
-\---
-
-
-
-\# 8. Restored EC2 Returned HTTP 504
-
-
-
-\## Problem
-
-
-
-After downloading the WordPress backup from Amazon S3 and restoring it to the new EC2 instance, the website initially returned:
-
-
-
-```text
-
 HTTP/1.1 504 Gateway Timeout
-
 ```
 
+### Investigation
 
+The WordPress files were present, so I tested connectivity from the restored EC2 instance to the external RDS database.
 
-\## Investigation
-
-
-
-The WordPress files were present:
-
-
-
-```bash
-
-ls -la /var/www/html
-
-```
-
-
-
-Therefore, I investigated the backend database connection.
-
-
-
-I tested access to the RDS database port.
-
-
-
-The test showed:
-
-
+The result showed:
 
 ```text
-
 RDS PORT BLOCKED
-
 ```
 
+I then checked the RDS security group.
 
+### Cause
 
-\## Cause
+The restored EC2 instance used a different security group from the original WordPress EC2 instance.
 
+The RDS security group allowed the original application environment but did not yet allow database traffic from the restored EC2 security group.
 
+### Solution
 
-The original EC2 instance and the new restore EC2 instance used different Security Groups.
-
-
-
-The RDS Security Group permitted the original WordPress EC2 Security Group but did not yet permit the Security Group used by:
-
-
+I updated the RDS security group to allow:
 
 ```text
-
-SWE40006-WordPress-S3-Restore
-
+MariaDB
+TCP
+Port 3306
+Source: Restored EC2 Security Group
 ```
 
+Using a security group as the source allowed database access specifically from the required EC2 environment rather than opening the database publicly.
 
+### Verification
 
-\## Solution
-
-
-
-I opened the RDS Security Group inbound rules and added:
-
-
+After updating the security group, connectivity testing showed:
 
 ```text
-
-Type: MySQL/Aurora
-
-Protocol: TCP
-
-Port: 3306
-
-Source: Restore EC2 Security Group
-
-```
-
-
-
-I did not make the RDS database publicly accessible.
-
-
-
-\## Result
-
-
-
-After updating the Security Group, the network test showed:
-
-
-
-```text
-
 RDS PORT OPEN
-
 ```
 
-
-
-\---
-
-
-
-\# 9. Final Restore Verification
-
-
-
-After fixing RDS access, I verified the restored WordPress configuration without displaying the password:
-
-
-
-```bash
-
-grep -E "DB\_NAME|DB\_USER|DB\_HOST" /var/www/html/wp-config.php
-
-```
-
-
-
-I also used:
-
-
-
-```bash
-
-echo "=== RESTORED WORDPRESS INSTANCE ==="
-
-hostname
-
-grep -E "DB\_NAME|DB\_USER|DB\_HOST" /var/www/html/wp-config.php
-
-echo "=== WEBSITE TEST ==="
-
-curl -I http://localhost | head -n 1
-
-```
-
-
-
-The final result included:
-
-
+The WordPress HTTP test then returned:
 
 ```text
-
 HTTP/1.1 200 OK
-
 ```
 
+The restored WordPress website also loaded successfully in the browser.
 
+### Evidence
 
-I then opened the restored EC2 public address in a browser.
+![Restore RDS Troubleshooting](../screenshots/Task-2.2/08-Restore-RDS-Troubleshooting.png)
 
+**Figure 1:** Restored EC2 troubleshooting showing the transition from RDS port blocked and HTTP 504 to RDS port open and HTTP 200.
 
+### Lesson Learned
 
-The WordPress website loaded successfully.
+When creating or restoring a new EC2 instance, database security-group rules must also permit the new instance or its security group to communicate with RDS.
 
+---
 
+## 9. S3 Backup and Restore Verification
 
-\---
+### Problem
 
+Creating backup files alone does not prove that the deployment can actually be recovered.
 
+### Approach
 
-\# Troubleshooting Summary
+I tested the backup by creating a separate EC2 instance and retrieving the WordPress application archive from S3.
 
-
-
-| Problem | Investigation | Cause | Solution | Result |
-
-|---|---|---|---|---|
-
-| SSH timeout | Checked port 22 and source IP | Public IP changed | Updated SSH rule to current My IP | SSH connected |
-
-| ALB target unused | Checked AZ and ALB mappings | EC2 AZ subnet missing from ALB | Added ap-southeast-1c subnet | Target healthy |
-
-| RDS Error 3159 | Tested MariaDB connection | Secure transport required | Used `--ssl` | RDS connected |
-
-| RDS Error 1045 | Tested credentials | RDS password mismatch | Reset and verified password | Authentication succeeded |
-
-| WordPress/RDS connection | Checked SELinux | DB network Boolean disabled | Enabled `httpd\_can\_network\_connect\_db` | Network DB access allowed |
-
-| HTTP 500 | PHP and CLI testing | Incorrect SSL constant | Changed to `MYSQLI\_CLIENT\_SSL` | HTTP 200 |
-
-| Restore HTTP 504 | Tested RDS port | Restore SG not permitted | Added restore SG to RDS inbound rules | RDS port open |
-
-| Restore verification | `curl`, `grep`, browser | Configuration corrected | Retested application | HTTP 200 |
-
-
-
-\---
-
-
-
-\# Overall Learning
-
-
-
-The main lesson from the deployment was that cloud application problems can occur at several different layers:
-
-
-
-```text
-
-Application configuration
-
-&#x20;       |
-
-&#x20;       v
-
-PHP / Apache
-
-&#x20;       |
-
-&#x20;       v
-
-Linux / SELinux
-
-&#x20;       |
-
-&#x20;       v
-
-EC2 Security Groups
-
-&#x20;       |
-
-&#x20;       v
-
-Load Balancer / Target Group
-
-&#x20;       |
-
-&#x20;       v
-
-RDS security and authentication
-
-&#x20;       |
-
-&#x20;       v
-
-AWS networking
-
-```
-
-
-
-Testing each layer separately made it easier to identify the actual cause instead of changing multiple settings at the same time.
-
-
-
-Command-line tools such as:
-
-
+The S3 bucket contents were checked using:
 
 ```bash
-
-curl
-
-php
-
-mariadb
-
-systemctl
-
-getsebool
-
-grep
-
-aws s3
-
+aws s3 ls s3://swe40006-thivyasree-ec2-backup/
 ```
 
+The WordPress archive was downloaded using:
 
+```bash
+aws s3 cp s3://swe40006-thivyasree-ec2-backup/wordpress-files-backup.tar.gz .
+```
 
-were useful for isolating problems and confirming that each fix worked.
+The application files were restored using:
 
+```bash
+sudo tar -xzf wordpress-files-backup.tar.gz -C /
+```
 
+### Verification
 
-\---
+The WordPress files were present under:
 
+```text
+/var/www/html
+```
 
+After resolving the RDS security-group issue, the restored deployment returned:
 
-\# Security
+```text
+HTTP/1.1 200 OK
+```
 
+and WordPress loaded successfully.
 
+### Lesson Learned
 
-No passwords, SSH private keys, AWS access keys or AWS secret keys are included in this troubleshooting documentation.
+A backup should be tested by performing a restoration. A successful restore provides stronger evidence than simply showing that backup files exist.
 
+---
 
+## Troubleshooting Summary
 
-Screenshots containing visible credentials should not be uploaded to GitHub.
+| Problem | Cause | Resolution |
+|---|---|---|
+| SSH timeout | Public IP changed | Updated SSH security group source |
+| SSH key rejected | Windows key permissions too open | Corrected permissions using `icacls` |
+| ALB target unused | Required Availability Zone/subnet missing | Added subnet/AZ to ALB |
+| RDS secure transport error | SSL required | Connected using `mariadb --ssl` |
+| RDS authentication error | Password mismatch | Reset and verified RDS credentials |
+| Apache could not reach RDS | SELinux database networking disabled | Enabled `httpd_can_network_connect_db` |
+| WordPress HTTP 500 | Incorrect MySQL SSL constant | Changed to `MYSQLI_CLIENT_SSL` |
+| Restored WordPress HTTP 504 | RDS port blocked for restore instance | Allowed restore EC2 security group on port `3306` |
 
+---
+
+## Final Result
+
+All major deployment problems were investigated and resolved successfully.
+
+The troubleshooting process involved checking multiple layers of the deployment:
+
+```text
+Windows Client
+      |
+      v
+SSH / Security Groups
+      |
+      v
+EC2 / Apache / PHP
+      |
+      v
+Application Load Balancer
+      |
+      v
+WordPress
+      |
+      v
+Amazon RDS
+      |
+      v
+Amazon S3 Backup and Restore
+```
+
+The final environment demonstrated successful WordPress deployment, external RDS database connectivity, load balancing, S3 backup and recovery, Auto Scaling, and SSH command-line administration.
+
+The troubleshooting work also demonstrates practical investigation rather than only successful final-state screenshots.
